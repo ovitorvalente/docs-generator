@@ -4,17 +4,11 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-  FieldLegend,
-  FieldSet,
-} from "@/components/ui/field";
-import { ArrowLeftIcon, BadgeCheck, CheckCircle2Icon, CopyIcon, TriangleAlertIcon } from "lucide-react";
+import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
+import { ArrowLeftIcon, CheckCircle2Icon, CopyIcon, TriangleAlertIcon } from "lucide-react";
 import { Alert } from "../ui/alert";
-import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "../ui/item";
+import { CabecalhoEtapasDeclaracao } from "./shared/cabecalho-etapas";
+import { BlocoSucessoPDF } from "./shared/sucesso-pdf";
 
 const ESTRUTURA_PADRAO_MENSAGEM = [
   "Nome:",
@@ -201,64 +195,10 @@ export default function AbaDeclaracaoResidencia() {
 
   return (
     <section className="mt-4 space-y-4 rounded-4xl border border-dashed border-border bg-background/50 p-4">
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <div
-            className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
-              etapa_atual >= 1
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground"
-            }`}
-          >
-            1
-          </div>
-          <span className="text-xs font-medium text-muted-foreground">
-            Mensagem da declaração
-          </span>
-        </div>
-
-        <div
-          className={`h-px flex-1 transition-colors ${
-            etapa_atual >= 2 ? "bg-white" : "bg-border"
-          }`}
-        />
-
-        <div className="flex items-center gap-2">
-          <div
-            className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
-              etapa_atual >= 2
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground"
-            }`}
-          >
-            2
-          </div>
-          <span className="text-xs font-medium text-muted-foreground">
-            Dados identificados
-          </span>
-        </div>
-
-        <div
-          className={`h-px flex-1 transition-colors ${
-            etapa_atual >= 3 ? "bg-white" : "bg-border"
-          }`}
-        />
-
-        <div className="flex items-center gap-2">
-          <div
-            className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
-              etapa_atual >= 3
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground"
-            }`}
-          >
-            3
-          </div>
-          <span className="text-xs font-medium text-muted-foreground">
-            PDF gerado
-          </span>
-        </div>
-      </div>
+      <CabecalhoEtapasDeclaracao
+        etapas={["Mensagem da declaração", "Dados identificados", "PDF gerado"]}
+        etapa_atual={etapa_atual}
+      />
 
       {etapa === "entrada" && (
         <FieldSet>
@@ -524,29 +464,11 @@ export default function AbaDeclaracaoResidencia() {
       )}
 
       {etapa === "sucesso" && (
-        <Item className="border-2 border-emerald-700/50 bg-emerald-950/20 rounded-3xl">
-          <ItemMedia>
-            <BadgeCheck className="size-6 text-green-500"/>
-          </ItemMedia>
-          <ItemContent>
-            <ItemTitle>
-              PDF gerado com sucesso
-            </ItemTitle>
-            <ItemDescription>
-              O download da declaração foi iniciado. Você será levado de volta para a etapa 1 automaticamente em alguns segundos.
-            </ItemDescription>
-          </ItemContent>
-          <ItemActions>
-            <Button
-              type="button"
-              variant="outline"
-              size="lg"
-              onClick={() => definir_etapa("entrada")}
-            >
-              Concluir
-            </Button>
-          </ItemActions>
-        </Item>
+        <BlocoSucessoPDF
+          on_concluir={() => definir_etapa("entrada")}
+          descricao="O download da declaração foi iniciado. Você será levado de volta para a etapa 1 automaticamente em alguns segundos."
+          rotulo_botao="Concluir"
+        />
       )}
     </section>
   );
