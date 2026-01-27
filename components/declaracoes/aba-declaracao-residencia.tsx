@@ -91,6 +91,7 @@ export default function AbaDeclaracaoResidencia() {
   );
   const [gerando_pdf, definir_gerando_pdf] = useState(false);
   const [erro_mensagem, definir_erro_mensagem] = useState<string | null>(null);
+  const [erro_pdf, definir_erro_pdf] = useState<string | null>(null);
   const [copiado, definir_copiado] = useState(false);
   function normalizar_rotulo(rotulo: string) {
     return rotulo.trim().toLowerCase();
@@ -135,6 +136,7 @@ export default function AbaDeclaracaoResidencia() {
   async function gerar_pdf() {
     try {
       definir_gerando_pdf(true);
+      definir_erro_pdf(null);
 
       const resposta = await fetch("/api/declaracao-residencia", {
         method: "POST",
@@ -145,7 +147,9 @@ export default function AbaDeclaracaoResidencia() {
       });
 
       if (!resposta.ok) {
-        console.error("Falha ao gerar PDF de declaração de residência");
+        definir_erro_pdf(
+          "Não foi possível gerar o PDF da declaração. Tente novamente."
+        );
         return;
       }
 
@@ -176,6 +180,9 @@ export default function AbaDeclaracaoResidencia() {
       definir_etapa("sucesso");
     } catch (erro) {
       console.error("Erro ao gerar PDF de declaração de residência:", erro);
+      definir_erro_pdf(
+        "Ocorreu um erro inesperado ao gerar o PDF. Tente novamente em instantes."
+      );
     } finally {
       definir_gerando_pdf(false);
     }
@@ -459,6 +466,18 @@ export default function AbaDeclaracaoResidencia() {
                 {gerando_pdf ? "Gerando PDF..." : "Gerar PDF"}
               </Button>
             </Field>
+
+            {erro_pdf ? (
+              <Field className="sm:col-span-2 lg:col-span-3">
+                <Alert
+                  variant="destructive"
+                  className="border-red-500/20 bg-red-500/5 font-bold"
+                >
+                  <TriangleAlertIcon className="size-4" />
+                  {erro_pdf}
+                </Alert>
+              </Field>
+            ) : null}
           </FieldGroup>
         </FieldSet>
       )}
