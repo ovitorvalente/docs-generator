@@ -1,0 +1,155 @@
+---
+description: "Padrões para usar Prisma: queries, migrations e boas práticas"
+globs: ["prisma/**/*.prisma", "lib/prisma.ts", "prisma/**/*.ts"]
+alwaysApply: false
+---
+
+# Padrões do Prisma
+
+## Cliente Prisma
+
+Sempre use o cliente singleton de `lib/prisma.ts`:
+
+```typescript
+import { prisma } from "@/lib/prisma";
+
+const usuario = await prisma.user.findUnique({
+  where: { email: "user@example.com" },
+});
+```
+
+## Schema Patterns
+
+### Nomenclatura
+- **Modelos**: PascalCase (User, Session, Documento)
+- **Campos**: camelCase (userId, createdAt)
+- **Tabelas**: snake_case via @@map ("usuarios", "sessoes")
+
+### Timestamps Obrigatórios
+```prisma
+model User {
+  id        String   @id @default(uuid())
+  criadoEm  DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@map("usuarios")
+}
+```
+
+### Relações
+```prisma
+model User {
+  id       String    @id @default(uuid())
+  sessoes  Session[] // Um para muitos
+}
+
+model Session {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+```
+
+## Queries Comuns
+
+### Criar com Dados Relacionados
+```typescript
+const usuario = await prisma.user.create({
+  data: {
+    nome: "Nome",
+    email: "email@example.com",
+    senha: hashedPassword,
+    sessoes: {
+      create: {
+        token: jwt,
+        expiresAt: new Date(),
+      },
+    },
+  },
+  include: {
+    sessoes: true,
+  },
+});
+```
+
+### Buscar com Relações
+```typescript
+const usuario = await prisma.user.findUnique({
+  where: { id: userId },
+  include: {
+    sessoes: true,
+    documentos: {
+      where: { status: "ativo" },
+      orderBy: { criadoEm: "desc" },
+    },
+  },
+});
+```
+
+### Atualizar
+```typescript
+const atualizado = await prisma.user.update({
+  where: { id: userId },
+  data: { nome: "Novo Nome" },
+});
+```
+
+### Deletar com Cascade
+```typescript
+// OnDelete: Cascade no schema faz a limpeza automática
+await prisma.user.delete({
+  where: { id: userId },
+});
+```
+
+## Migrations
+
+### Criar Migration
+```bash
+npx prisma migrate dev --name nome_da_migration
+```
+
+### Deploy em Produção
+```bash
+npx prisma migrate deploy
+```
+
+### Gerar Cliente
+```bash
+npx prisma generate
+```
+
+## Transações
+
+Para operações atômicas:
+
+```typescript
+const resultado = await prisma.$transaction(async (tx) => {
+  const usuario = await tx.user.create({
+    data: { /* ... */ },
+  });
+
+  await tx.session.create({
+    data: {
+      userId: usuario.id,
+      token: jwt,
+    },
+  });
+
+  return usuario;
+});
+```
+
+## Seed
+
+Sempre torne o seed idempotente:
+
+```typescript
+const usuarioExistente = await prisma.user.findUnique({
+  where: { email: usuario.email },
+});
+
+if (!usuarioExistente) {
+  await prisma.user.create({ data: usuario });
+}
+```

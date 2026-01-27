@@ -1,0 +1,64 @@
+---
+description: "Regras e padrões para mensagens de commit usando Conventional Commits"
+alwaysApply: false
+---
+
+# Regras de Commit
+
+## Formato do Commit
+
+```
+<tipo>(<escopo>): <descrição>
+
+[corpo opcional]
+
+[rodapé opcional]
+```
+
+## Tipos Permitidos
+
+- **feat**: Nova funcionalidade
+- **fix**: Correção de bug
+- **docs**: Mudanças na documentação
+- **style**: Formatação (sem mudança de código)
+- **refactor**: Refatoração de código
+- **perf**: Melhorias de performance
+- **test**: Adiciona ou corrige testes
+- **chore**: Mudanças em ferramentas, configs, dependências
+- **build**: Mudanças no sistema de build
+- **ci**: Mudanças em CI/CD
+
+## Escopos Comuns
+
+- **auth**: Autenticação e autorização
+- **db**: Database, migrations, schema
+- **api**: Rotas de API
+- **ui**: Componentes de interface
+- **config**: Arquivos de configuração
+
+## Boas Práticas
+
+1. Descrição clara e concisa (máximo 50 caracteres)
+2. Usar imperativo: "adiciona" não "adicionado"
+3. Primeira letra minúscula
+4. Sem ponto final na descrição
+5. Commits atômicos (uma mudança lógica)
+6. Máximo 4 arquivos relacionados por commit
+
+## Exemplos
+
+### Bom ✅
+```
+feat(auth): adiciona autenticação JWT
+
+- Implementa login com email/senha
+- Cria middleware de proteção
+- Adiciona cookies HTTPOnly
+```
+
+### Ruim ❌
+```
+Update files
+fix bug
+WIP
+```
