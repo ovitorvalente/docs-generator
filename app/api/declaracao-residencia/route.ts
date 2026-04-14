@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import path from "node:path";
-import { createRequire } from "node:module";
 import { cwd } from "node:process";
+import { readFile } from "node:fs/promises";
+import { PDFDocument, StandardFonts, type PDFFont } from "pdf-lib";
 
 type CamposResidencia = {
   nome: string;
@@ -24,13 +25,10 @@ type CamposResidencia = {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const require = createRequire(import.meta.url);
-
-function obter_pdfkit() {
-  // Usa a versão CommonJS para evitar incompatibilidade do bundle ESM do pdfkit com Turbopack.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require("pdfkit/js/pdfkit.js");
-}
+const A4_WIDTH = 595.28;
+const A4_HEIGHT = 841.89;
+const MARGIN_X = 50;
+const TEXT_WIDTH = A4_WIDTH - MARGIN_X * 2;
 
 function gerar_nome_arquivo(campos: CamposResidencia, data: Date) {
   const nome_base = (campos.nome || "declaracao-residencia")
@@ -100,7 +98,6 @@ function formatar_documento_identidade(
   const cpf_digitos = apenas_digitos(cpf);
 
   if (rg_digitos && cpf_digitos && rg_digitos === cpf_digitos) {
-    // Quando RG é o mesmo número do CPF, formatamos como CPF
     return formatar_cpf(cpf);
   }
 
@@ -115,43 +112,112 @@ function formatar_documento_identidade(
   return documento_identidade ?? "";
 }
 
-function obter_caminho_logo() {
-  return path.join(cwd(), "public", "logo.png");
-}
+function quebrar_linhas(
+  texto: string,
+  fonte: PDFFont,
+  tamanho: number,
+  largura_maxima: number
+): string[] {
+  const paragrafos = texto.split(/\r?\n/);
+  const linhas: string[] = [];
 
-function escrever_documento_pdf(documento: any, campos: CamposResidencia) {
-  const caminho_logo = obter_caminho_logo();
+  for (const paragrafo of paragrafos) {
+    const limpo = paragrafo.trim();
+    if (!limpo) {
+      linhas.push("");
+      continue;
+    }
 
-  try {
-    documento.image(caminho_logo, 60, 90, { width: 60 });
-  } catch {
-    // Se a logo não for encontrada, apenas segue sem ela
+    const palavras = limpo.split(/\s+/);
+    let atual = "";
+
+    for (const palavra of palavras) {
+      const candidato = atual ? `${atual} ${palavra}` : palavra;
+      const largura = fonte.widthOfTextAtSize(candidato, tamanho);
+      if (largura <= largura_maxima) {
+        atual = candidato;
+      } else {
+        if (atual) {
+          linhas.push(atual);
+          atual = palavra;
+        } else {
+          linhas.push(palavra);
+          atual = "";
+        }
+      }
+    }
+
+    if (atual) {
+      linhas.push(atual);
+    }
   }
 
-  // Título "DECLARAÇÃO DE RESIDÊNCIA" centralizado com sublinhado, como no modelo
+  return linhas;
+}
+
+function desenhar_texto(
+  pagina: ReturnType<PDFDocument["addPage"]>,
+  texto: string,
+  x: number,
+  y_inicial: number,
+  largura_maxima: number,
+  fonte: PDFFont,
+  tamanho: number,
+  espacamento_linha: number
+) {
+  let y = y_inicial;
+  const linhas = quebrar_linhas(texto, fonte, tamanho, largura_maxima);
+
+  for (const linha of linhas) {
+    if (linha) {
+      pagina.drawText(linha, { x, y, size: tamanho, font: fonte });
+    }
+    y -= espacamento_linha;
+  }
+
+  return y;
+}
+
+async function gerar_pdf(campos: CamposResidencia): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  const pagina = pdf.addPage([A4_WIDTH, A4_HEIGHT]);
+
+  const fonte_regular = await pdf.embedFont(StandardFonts.Helvetica);
+  const fonte_bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+
+  const caminho_logo = path.join(cwd(), "public", "logo.png");
+  try {
+    const logo_bytes = await readFile(caminho_logo);
+    const logo = await pdf.embedPng(logo_bytes);
+    const escala = 60 / logo.width;
+    pagina.drawImage(logo, {
+      x: 60,
+      y: A4_HEIGHT - 145,
+      width: 60,
+      height: logo.height * escala,
+    });
+  } catch {
+    // Se a logo não existir, segue sem ela.
+  }
+
   const titulo = "DECLARAÇÃO DE RESIDÊNCIA";
   const tamanho_titulo = 18;
+  const largura_titulo = fonte_bold.widthOfTextAtSize(titulo, tamanho_titulo);
+  const x_titulo = (A4_WIDTH - largura_titulo) / 2;
+  const y_titulo = A4_HEIGHT - 110;
 
-  documento.font("Helvetica-Bold").fontSize(tamanho_titulo);
+  pagina.drawText(titulo, {
+    x: x_titulo,
+    y: y_titulo,
+    size: tamanho_titulo,
+    font: fonte_bold,
+  });
 
-  const largura_titulo = documento.widthOfString(titulo);
-  const largura_pagina =
-    documento.page.width -
-    documento.page.margins.left -
-    documento.page.margins.right;
-  const x_titulo =
-    documento.page.margins.left + (largura_pagina - largura_titulo) / 2;
-  const y_titulo = 90;
-
-  documento.text(titulo, x_titulo, y_titulo, { align: "left" });
-
-  const altura_linha = documento.currentLineHeight();
-  const y_linha = y_titulo + altura_linha;
-
-  documento
-    .moveTo(x_titulo, y_linha)
-    .lineTo(x_titulo + largura_titulo, y_linha)
-    .stroke();
+  pagina.drawLine({
+    start: { x: x_titulo, y: y_titulo - 4 },
+    end: { x: x_titulo + largura_titulo, y: y_titulo - 4 },
+    thickness: 1,
+  });
 
   const documento_identidade_formatado = formatar_documento_identidade(
     campos.documento_identidade,
@@ -161,141 +227,144 @@ function escrever_documento_pdf(documento: any, campos: CamposResidencia) {
   const telefone_formatado = formatar_telefone(campos.telefone);
   const cep_formatado = formatar_cep(campos.cep);
 
-  // Seção "Dados Pessoais" alinhada à esquerda
-  documento
-    .moveDown(2)
-    .font("Helvetica-Bold")
-    .fontSize(12)
-    .text("Dados Pessoais", 50, documento.y, { align: "left" });
+  let y = y_titulo - 40;
 
-  documento.moveDown(0.5);
-  documento.font("Helvetica").fontSize(11);
+  pagina.drawText("Dados Pessoais", {
+    x: MARGIN_X,
+    y,
+    size: 12,
+    font: fonte_bold,
+  });
+  y -= 18;
 
-  // Bloco de dados pessoais, uma linha para cada campo, como no exemplo
-  documento.text(`Nome: ${campos.nome}`);
-  documento.text(
-    `Documento de Identidade: ${documento_identidade_formatado}`
+  const linhas_dados = [
+    `Nome: ${campos.nome}`,
+    `Documento de Identidade: ${documento_identidade_formatado}`,
+    `Órgão expedidor: ${campos.orgao_expedidor}`,
+    `CPF: ${cpf_formatado}`,
+    `Nacionalidade: ${campos.nacionalidade}`,
+    `Telefone: ${telefone_formatado}`,
+    `E-mail: ${campos.email}`,
+    `Naturalidade: ${campos.naturalidade}`,
+  ];
+
+  for (const linha of linhas_dados) {
+    y = desenhar_texto(pagina, linha, MARGIN_X, y, TEXT_WIDTH, fonte_regular, 11, 14);
+  }
+
+  y -= 8;
+
+  y = desenhar_texto(
+    pagina,
+    "Na falta de documentos para comprovação de residência, declaro para os devidos fins, sob as penas da Lei, ser residente e domiciliado no endereço abaixo.",
+    MARGIN_X,
+    y,
+    TEXT_WIDTH,
+    fonte_bold,
+    11,
+    14
   );
-  documento.text(`Órgão expedidor: ${campos.orgao_expedidor}`);
-  documento.text(`CPF: ${cpf_formatado}`);
-  documento.text(`Nacionalidade: ${campos.nacionalidade}`);
-  documento.text(`Telefone: ${telefone_formatado}`);
-  documento.text(`E-mail: ${campos.email}`);
-  documento.text(`Naturalidade: ${campos.naturalidade}`);
 
-  documento.moveDown(1);
-  documento
-    .font("Helvetica-Bold")
-    .fontSize(11)
-    .text(
-      "Na falta de documentos para comprovação de residência, declaro para os devidos fins, sob as penas da Lei, ser residente e domiciliado no endereço abaixo.",
-      {
-        align: "justify",
-      }
-    );
+  y -= 8;
 
-  documento.moveDown(1);
-  documento.font("Helvetica").fontSize(11);
-  documento.text(`Endereço: ${campos.endereco}`);
-  documento.text(`Bairro: ${campos.bairro}`);
-  documento.text(`Cidade: ${campos.cidade}`);
-  documento.text(`CEP: ${cep_formatado}`);
-  documento.text(`UF: ${campos.uf}`);
-  documento.text(`Complemento: ${campos.complemento}`);
+  const linhas_endereco = [
+    `Endereço: ${campos.endereco}`,
+    `Bairro: ${campos.bairro}`,
+    `Cidade: ${campos.cidade}`,
+    `CEP: ${cep_formatado}`,
+    `UF: ${campos.uf}`,
+    `Complemento: ${campos.complemento}`,
+  ];
 
-  documento.moveDown(1);
-  documento
-    .font("Helvetica-Bold")
-    .fontSize(10)
-    .text(
-      'Declaro ainda, estar ciente de que a falsidade da presente declaração pode implicar na sanção penal prevista no Código Penal, "Art. 299 Omitir, em documento público ou particular, declaração que nele deveria constar, ou nele inserir ou fazer inserir declaração falsa ou diversa da que devia ser escrita, com o fim de prejudicar direito, criar obrigação ou alterar a verdade sobre fato juridicamente relevante", pena de reclusão de 1 (um) a 5 (cinco) anos e multa, se o documento é público e reclusão de 1 (um) a 3 (três) anos, se o documento é particular.',
-      {
-        align: "justify",
-      }
-    );
+  for (const linha of linhas_endereco) {
+    y = desenhar_texto(pagina, linha, MARGIN_X, y, TEXT_WIDTH, fonte_regular, 11, 14);
+  }
 
-  documento.moveDown(2);
+  y -= 8;
+
+  y = desenhar_texto(
+    pagina,
+    'Declaro ainda, estar ciente de que a falsidade da presente declaração pode implicar na sanção penal prevista no Código Penal, "Art. 299 Omitir, em documento público ou particular, declaração que nele deveria constar, ou nele inserir ou fazer inserir declaração falsa ou diversa da que devia ser escrita, com o fim de prejudicar direito, criar obrigação ou alterar a verdade sobre fato juridicamente relevante", pena de reclusão de 1 (um) a 5 (cinco) anos e multa, se o documento é público e reclusão de 1 (um) a 3 (três) anos, se o documento é particular.',
+    MARGIN_X,
+    y,
+    TEXT_WIDTH,
+    fonte_bold,
+    10,
+    13
+  );
+
+  y -= 22;
 
   const data_atual = new Date();
   const nome_cidade = campos.cidade || "VOLTA REDONDA";
-
   const data_formatada = data_atual.toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "long",
     year: "numeric",
   });
 
-  documento
-    .font("Helvetica")
-    .fontSize(11)
-    .text(
-      `${nome_cidade.toUpperCase()}, ${data_formatada.toUpperCase()}.`,
-      { align: "left" }
-    );
-
-  documento.moveDown(3);
-
-  documento
-    .font("Helvetica-Bold")
-    .fontSize(11)
-    .text(campos.nome, { align: "center" })
-    .moveDown(0);
-  documento
-    .font("Helvetica")
-    .fontSize(10)
-    .text("________________________________________", { align: "center" })
-    .moveDown(0.2);
-  documento.font("Helvetica").fontSize(10).text("Assinatura do cliente", {
-    align: "center",
+  pagina.drawText(`${nome_cidade.toUpperCase()}, ${data_formatada.toUpperCase()}.`, {
+    x: MARGIN_X,
+    y,
+    size: 11,
+    font: fonte_regular,
   });
+
+  y -= 70;
+
+  const nome_assinatura = campos.nome || "";
+  const largura_nome = fonte_bold.widthOfTextAtSize(nome_assinatura, 11);
+  const x_nome = (A4_WIDTH - largura_nome) / 2;
+  pagina.drawText(nome_assinatura, {
+    x: x_nome,
+    y,
+    size: 11,
+    font: fonte_bold,
+  });
+
+  y -= 16;
+  const linha_assinatura = "________________________________________";
+  const largura_linha_assinatura = fonte_regular.widthOfTextAtSize(linha_assinatura, 10);
+  const x_linha = (A4_WIDTH - largura_linha_assinatura) / 2;
+  pagina.drawText(linha_assinatura, {
+    x: x_linha,
+    y,
+    size: 10,
+    font: fonte_regular,
+  });
+
+  y -= 14;
+  const legenda = "Assinatura do cliente";
+  const largura_legenda = fonte_regular.widthOfTextAtSize(legenda, 10);
+  const x_legenda = (A4_WIDTH - largura_legenda) / 2;
+  pagina.drawText(legenda, {
+    x: x_legenda,
+    y,
+    size: 10,
+    font: fonte_regular,
+  });
+
+  return pdf.save();
 }
 
 export async function POST(requisicao: NextRequest) {
   try {
     const corpo = (await requisicao.json()) as CamposResidencia;
+    const bytes_pdf = await gerar_pdf(corpo);
+    const nome_arquivo = gerar_nome_arquivo(corpo, new Date());
 
-    const PDFKit = obter_pdfkit();
-
-    const documento = new PDFKit({
-      size: "A4",
-      margin: 50,
-    });
-
-    const partes: Buffer[] = [];
-
-    return await new Promise<NextResponse>((resolver, rejeitar) => {
-      documento.on("data", (parte: Buffer) => {
-        partes.push(parte);
-      });
-
-      documento.on("end", () => {
-        const buffer_pdf = Buffer.concat(partes);
-
-        const nome_arquivo = gerar_nome_arquivo(corpo, new Date());
-
-        const resposta = new NextResponse(buffer_pdf, {
-          status: 200,
-          headers: {
-            "Content-Type": "application/pdf",
-            "Content-Disposition": `attachment; filename="${nome_arquivo}"`,
-          },
-        });
-
-        resolver(resposta);
-      });
-
-      documento.on("error", (erro: unknown) => {
-        rejeitar(erro);
-      });
-
-      escrever_documento_pdf(documento, corpo);
-      documento.end();
+    return new NextResponse(Buffer.from(bytes_pdf), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${nome_arquivo}"`,
+      },
     });
   } catch (erro) {
-    console.error("Erro ao gerar PDF de declaração de residência:", erro);
-
     return NextResponse.json(
-      { mensagem: "Erro ao gerar PDF de declaração de residência" },
+      {
+        mensagem: "Erro ao gerar PDF de declaração de residência: " + erro,
+      },
       { status: 500 }
     );
   }

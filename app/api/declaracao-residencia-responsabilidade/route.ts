@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import path from "node:path";
-import { createRequire } from "node:module";
 import { cwd } from "node:process";
+import { readFile } from "node:fs/promises";
+import { PDFDocument, StandardFonts, type PDFFont } from "pdf-lib";
 
 type CamposResponsabilidade = {
   nome: string;
@@ -11,13 +12,10 @@ type CamposResponsabilidade = {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const require = createRequire(import.meta.url);
-
-function obter_pdfkit() {
-  // Usa a versão CommonJS para evitar incompatibilidade do bundle ESM do pdfkit com Turbopack.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require("pdfkit/js/pdfkit.js");
-}
+const A4_WIDTH = 595.28;
+const A4_HEIGHT = 841.89;
+const MARGIN_X = 60;
+const TEXT_WIDTH = A4_WIDTH - MARGIN_X * 2;
 
 function gerar_nome_arquivo(campos: CamposResponsabilidade, data: Date) {
   const nome_base = (campos.nome || "declaracao-residencia-responsabilidade")
@@ -34,150 +32,203 @@ function gerar_nome_arquivo(campos: CamposResponsabilidade, data: Date) {
   return `${nome_base}-${ano}${mes}${dia}.pdf`;
 }
 
-function obter_caminho_logo() {
-  return path.join(cwd(), "public", "logo.png");
-}
+function quebrar_linhas(
+  texto: string,
+  fonte: PDFFont,
+  tamanho: number,
+  largura_maxima: number
+): string[] {
+  const palavras = texto.trim().split(/\s+/);
+  const linhas: string[] = [];
+  let atual = "";
 
-function escrever_documento_pdf(documento: any, campos: CamposResponsabilidade) {
-  const caminho_logo = obter_caminho_logo();
+  for (const palavra of palavras) {
+    const candidato = atual ? `${atual} ${palavra}` : palavra;
+    const largura = fonte.widthOfTextAtSize(candidato, tamanho);
 
-  try {
-    documento.image(caminho_logo, 60, 20, { width: 60 });
-  } catch {
-    // Se a logo não for encontrada, apenas segue sem ela
+    if (largura <= largura_maxima) {
+      atual = candidato;
+    } else {
+      if (atual) {
+        linhas.push(atual);
+      }
+      atual = palavra;
+    }
   }
 
-  const titulo =
-    "DECLARAÇÃO DE RESIDÊNCIA E RESPONSABILIDADE FINANCEIRA";
+  if (atual) {
+    linhas.push(atual);
+  }
+
+  return linhas;
+}
+
+function desenhar_paragrafo(
+  pagina: ReturnType<PDFDocument["addPage"]>,
+  texto: string,
+  x: number,
+  y_inicial: number,
+  largura_maxima: number,
+  fonte: PDFFont,
+  tamanho: number,
+  espacamento_linha: number
+) {
+  let y = y_inicial;
+  const linhas = quebrar_linhas(texto, fonte, tamanho, largura_maxima);
+
+  for (const linha of linhas) {
+    pagina.drawText(linha, { x, y, size: tamanho, font: fonte });
+    y -= espacamento_linha;
+  }
+
+  return y;
+}
+
+async function gerar_pdf(campos: CamposResponsabilidade): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  const pagina = pdf.addPage([A4_WIDTH, A4_HEIGHT]);
+
+  const fonte_regular = await pdf.embedFont(StandardFonts.Helvetica);
+  const fonte_bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+
+  const caminho_logo = path.join(cwd(), "public", "logo.png");
+  try {
+    const logo_bytes = await readFile(caminho_logo);
+    const logo = await pdf.embedPng(logo_bytes);
+    const escala = 60 / logo.width;
+    pagina.drawImage(logo, {
+      x: 60,
+      y: A4_HEIGHT - 100,
+      width: 60,
+      height: logo.height * escala,
+    });
+  } catch {
+    // Se a logo não existir, segue sem ela.
+  }
+
+  const titulo = "DECLARAÇÃO DE RESIDÊNCIA E RESPONSABILIDADE FINANCEIRA";
   const tamanho_titulo = 14;
+  const largura_titulo = fonte_bold.widthOfTextAtSize(titulo, tamanho_titulo);
+  const x_titulo = (A4_WIDTH - largura_titulo) / 2;
+  const y_titulo = A4_HEIGHT - 110;
 
-  documento.font("Helvetica-Bold").fontSize(tamanho_titulo);
+  pagina.drawText(titulo, {
+    x: x_titulo,
+    y: y_titulo,
+    size: tamanho_titulo,
+    font: fonte_bold,
+  });
 
-  const largura_titulo = documento.widthOfString(titulo);
-  const largura_pagina =
-    documento.page.width -
-    documento.page.margins.left -
-    documento.page.margins.right;
-  const x_titulo =
-    documento.page.margins.left + (largura_pagina - largura_titulo) / 2;
-  const y_titulo = 90;
+  pagina.drawLine({
+    start: { x: x_titulo, y: y_titulo - 4 },
+    end: { x: x_titulo + largura_titulo, y: y_titulo - 4 },
+    thickness: 1,
+  });
 
-  documento.text(titulo, x_titulo, y_titulo, { align: "left" });
+  let y = y_titulo - 36;
 
-  const altura_linha = documento.currentLineHeight();
-  const y_linha = y_titulo + altura_linha;
-
-  documento
-    .moveTo(x_titulo, y_linha)
-    .lineTo(x_titulo + largura_titulo, y_linha)
-    .stroke();
-
-  documento.moveDown(3);
-
-  documento.font("Helvetica").fontSize(12);
-  documento.text(
+  y = desenhar_paragrafo(
+    pagina,
     `Eu, ${campos.nome}, na falta de documentos para comprovação de residência, em conformidade com o disposto na Lei nº 7.115, de 29 de agosto de 1983, declaro, para os devidos fins e sob as penas da lei, que resido e sou domiciliado no endereço informado à empresa contratante.`,
-    {
-      align: "justify",
-    }
+    MARGIN_X,
+    y,
+    TEXT_WIDTH,
+    fonte_regular,
+    12,
+    16
   );
 
-  documento.moveDown(1.5);
+  y -= 10;
 
-  documento
-    .font("Helvetica")
-    .fontSize(12)
-    .text(
-      "Declaro ainda que estou contratando o serviço de internet para outra pessoa, assumindo total responsabilidade financeira pelo referido serviço, que será instalado no endereço informado no ato da contratação.",
-      {
-        align: "justify",
-      }
-    );
+  y = desenhar_paragrafo(
+    pagina,
+    "Declaro ainda que estou contratando o serviço de internet para outra pessoa, assumindo total responsabilidade financeira pelo referido serviço, que será instalado no endereço informado no ato da contratação.",
+    MARGIN_X,
+    y,
+    TEXT_WIDTH,
+    fonte_regular,
+    12,
+    16
+  );
 
-  documento.moveDown(1.5);
+  y -= 10;
 
-  documento
-    .font("Helvetica")
-    .fontSize(12)
-    .text(
-      "Por ser verdade, firmo a presente declaração para que produza seus efeitos legais, ciente de que a falsidade das informações prestadas pode implicar em sanções civis, administrativas e penais, nos termos do art. 299 do Código Penal.",
-      {
-        align: "justify",
-      }
-    );
+  y = desenhar_paragrafo(
+    pagina,
+    "Por ser verdade, firmo a presente declaração para que produza seus efeitos legais, ciente de que a falsidade das informações prestadas pode implicar em sanções civis, administrativas e penais, nos termos do art. 299 do Código Penal.",
+    MARGIN_X,
+    y,
+    TEXT_WIDTH,
+    fonte_regular,
+    12,
+    16
+  );
 
-  documento.moveDown(3);
+  y -= 28;
 
   const data_atual = new Date();
-
   const data_formatada = data_atual.toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "long",
     year: "numeric",
   });
 
-  documento
-    .font("Helvetica")
-    .fontSize(11)
-    .text(`Volta Redonda, ${data_formatada}.`, { align: "left" });
-
-  documento.moveDown(3);
-
-  documento
-    .font("Helvetica-Bold")
-    .fontSize(11)
-    .text(campos.nome, { align: "center" })
-    .moveDown(-0.5);
-  documento
-    .font("Helvetica")
-    .fontSize(10)
-    .text("________________________________________", { align: "center" })
-    .moveDown(0.5);
-  documento.font("Helvetica").fontSize(10).text("Assinatura do responsável", {
-    align: "center",
+  pagina.drawText(`Volta Redonda, ${data_formatada}.`, {
+    x: MARGIN_X,
+    y,
+    size: 11,
+    font: fonte_regular,
   });
+
+  y -= 70;
+
+  const nome_assinatura = campos.nome || "";
+  const largura_nome = fonte_bold.widthOfTextAtSize(nome_assinatura, 11);
+  const x_nome = (A4_WIDTH - largura_nome) / 2;
+  pagina.drawText(nome_assinatura, {
+    x: x_nome,
+    y,
+    size: 11,
+    font: fonte_bold,
+  });
+
+  y -= 16;
+  const linha_assinatura = "________________________________________";
+  const largura_linha = fonte_regular.widthOfTextAtSize(linha_assinatura, 10);
+  const x_linha = (A4_WIDTH - largura_linha) / 2;
+  pagina.drawText(linha_assinatura, {
+    x: x_linha,
+    y,
+    size: 10,
+    font: fonte_regular,
+  });
+
+  y -= 14;
+  const legenda = "Assinatura do responsável";
+  const largura_legenda = fonte_regular.widthOfTextAtSize(legenda, 10);
+  const x_legenda = (A4_WIDTH - largura_legenda) / 2;
+  pagina.drawText(legenda, {
+    x: x_legenda,
+    y,
+    size: 10,
+    font: fonte_regular,
+  });
+
+  return pdf.save();
 }
 
 export async function POST(requisicao: NextRequest) {
   try {
     const corpo = (await requisicao.json()) as CamposResponsabilidade;
+    const bytes_pdf = await gerar_pdf(corpo);
+    const nome_arquivo = gerar_nome_arquivo(corpo, new Date());
 
-    const PDFKit = obter_pdfkit();
-
-    const documento = new PDFKit({
-      size: "A4",
-      margin: 60,
-    });
-
-    const partes: Buffer[] = [];
-
-    return await new Promise<NextResponse>((resolver, rejeitar) => {
-      documento.on("data", (parte: Buffer) => {
-        partes.push(parte);
-      });
-
-      documento.on("end", () => {
-        const buffer_pdf = Buffer.concat(partes);
-
-        const nome_arquivo = gerar_nome_arquivo(corpo, new Date());
-
-        const resposta = new NextResponse(buffer_pdf, {
-          status: 200,
-          headers: {
-            "Content-Type": "application/pdf",
-            "Content-Disposition": `attachment; filename="${nome_arquivo}"`,
-          },
-        });
-
-        resolver(resposta);
-      });
-
-      documento.on("error", (erro: unknown) => {
-        rejeitar(erro);
-      });
-
-      escrever_documento_pdf(documento, corpo);
-      documento.end();
+    return new NextResponse(Buffer.from(bytes_pdf), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${nome_arquivo}"`,
+      },
     });
   } catch (erro) {
     return NextResponse.json(
