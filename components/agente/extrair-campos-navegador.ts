@@ -175,55 +175,6 @@ const ESTADO_INICIAL_CAMPOS: CamposResidencia = {
   complemento: "",
 };
 
-const PERGUNTAS_POR_CAMPO: Record<keyof CamposResidencia, string> = {
-  nome: "Qual é o nome completo?",
-  documento_identidade: "Qual é o número do documento de identidade?",
-  orgao_expedidor: "Qual é o órgão expedidor do documento?",
-  cpf: "Qual é o CPF?",
-  nacionalidade: "Qual é a nacionalidade?",
-  telefone: "Qual é o telefone?",
-  email: "Qual é o e-mail?",
-  naturalidade: "Qual é a naturalidade?",
-  endereco: "Qual é o endereço completo?",
-  bairro: "Qual é o bairro?",
-  cidade: "Qual é a cidade?",
-  cep: "Qual é o CEP?",
-  uf: "Qual é o UF ou estado?",
-  complemento: "Qual é o complemento do endereço?",
-};
-
-type PipelineQA = (entrada: {
-  question: string;
-  context: string;
-}) => Promise<{ answer?: string }>;
-
-let pipeline_carregado: PipelineQA | null = null;
-let carregando_pipeline: Promise<PipelineQA> | null = null;
-
-async function obter_pipeline_qa(): Promise<PipelineQA> {
-  if (pipeline_carregado) {
-    return pipeline_carregado;
-  }
-
-  if (carregando_pipeline) {
-    return carregando_pipeline;
-  }
-
-  carregando_pipeline = (async () => {
-    const modulo = await import("@huggingface/transformers");
-    const pipeline = (await modulo.pipeline(
-      "question-answering",
-      "Xenova/distilbert-base-uncased-distilled-squad",
-      { dtype: "q4" }
-    )) as unknown as PipelineQA;
-
-    pipeline_carregado = pipeline;
-    return pipeline;
-  })();
-
-  return carregando_pipeline;
-}
-
 export type FaseExtracao = "carregando_modelo" | "extraindo_campos";
 
 export type CallbackProgressoExtracao = (fase: FaseExtracao) => void;
@@ -236,50 +187,13 @@ export async function extrair_campos_com_ia(
   mensagem: string,
   onProgresso?: CallbackProgressoExtracao
 ): Promise<CamposResidencia> {
-  const contexto = mensagem.trim();
-
-  if (!contexto) {
+  if (!mensagem.trim()) {
     return { ...ESTADO_INICIAL_CAMPOS };
   }
 
-  const resultado = extrair_por_parser(contexto);
-
-  const campos_vazios = (Object.keys(resultado) as (keyof CamposResidencia)[]).filter(
-    (chave) => !resultado[chave].trim()
-  );
-
-  if (campos_vazios.length === 0) {
-    onProgresso?.("carregando_modelo");
-    onProgresso?.("extraindo_campos");
-    return resultado;
-  }
-
+  // Mantemos os callbacks de progresso para preservar o contrato com o modal,
+  // mas a extração é feita apenas por parser para evitar dependência obsoleta.
   onProgresso?.("carregando_modelo");
-  const qa = await obter_pipeline_qa();
-
   onProgresso?.("extraindo_campos");
-
-  for (const chave of campos_vazios) {
-    const pergunta = PERGUNTAS_POR_CAMPO[chave];
-
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const resposta = (await qa({
-        question: pergunta,
-        context: contexto,
-      })) as any;
-
-      const texto_resposta: string | undefined = resposta?.answer;
-
-      resultado[chave] = texto_resposta?.toString().trim() ?? "";
-    } catch (erro) {
-      console.error(
-        `Erro ao extrair campo "${String(chave)}" com IA no navegador:`,
-        erro
-      );
-    }
-  }
-
-  return resultado;
+  return extrair_por_parser(mensagem);
 }
-
