@@ -355,13 +355,11 @@ export default function AbaDeclaracaoResidencia() {
             <Field>
               <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col">
-                  <span className="text-sm font-medium">
-                    Motor de IA (Gemini)
-                  </span>
+                  <span className="text-sm font-medium">Motor de IA</span>
                   <span className="text-xs text-muted-foreground">
                     {motor_ia_ativo
                       ? 'Ativo: leitura e formatação automática inteligente.'
-                      : 'Desativado: leitura pelo parser local com base em rótulos.'}
+                      : 'Desativado: leitura local com base em templates.'}
                   </span>
                 </div>
 
@@ -404,7 +402,7 @@ export default function AbaDeclaracaoResidencia() {
               />
             </Field>
 
-            <Field className="sticky bottom-3 z-10 rounded-xl border border-border bg-background/95 p-3 backdrop-blur-sm">
+            <Field className="sticky bottom-3 z-10 bg-background/95 p-3 backdrop-blur-sm">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <Button
                   type="button"
