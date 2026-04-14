@@ -185,10 +185,18 @@ async function gerar_pdf(campos: CamposResidencia): Promise<Uint8Array> {
   const fonte_regular = await pdf.embedFont(StandardFonts.Helvetica);
   const fonte_bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-  const caminho_logo = path.join(cwd(), "public", "logo.png");
+  const caminho_logo_jpg = path.join(cwd(), "public", "logo.jpg");
+  const caminho_logo_png = path.join(cwd(), "public", "logo.png");
   try {
-    const logo_bytes = await readFile(caminho_logo);
-    const logo = await pdf.embedPng(logo_bytes);
+    let logo;
+    try {
+      const logo_bytes_jpg = await readFile(caminho_logo_jpg);
+      logo = await pdf.embedJpg(logo_bytes_jpg);
+    } catch {
+      const logo_bytes_png = await readFile(caminho_logo_png);
+      logo = await pdf.embedPng(logo_bytes_png);
+    }
+
     const escala = 60 / logo.width;
     pagina.drawImage(logo, {
       x: 60,
