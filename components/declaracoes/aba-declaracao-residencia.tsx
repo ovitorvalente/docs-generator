@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
+import { Field, FieldDescription, FieldGroup, FieldLabel, FieldSet } from "@/components/ui/field";
 import { ArrowLeftIcon, CheckCircle2Icon, CopyIcon, TriangleAlertIcon } from "lucide-react";
 import { Alert } from "../ui/alert";
 import { CabecalhoEtapasDeclaracao } from "./shared/cabecalho-etapas";
 import { BlocoSucessoPDF } from "./shared/sucesso-pdf";
+import { cn } from "@/lib/utils";
 
 const ESTRUTURA_PADRAO_MENSAGEM = [
   "Nome:",
@@ -62,23 +63,29 @@ const estado_inicial_campos: CamposResidencia = {
 };
 
 const mapa_rotulos_para_campo: Record<string, keyof CamposResidencia> = {
-  "nome": "nome",
+  nome: "nome",
   "documento de identidade": "documento_identidade",
-  "órgão expedidor": "orgao_expedidor",
   "orgão expedidor": "orgao_expedidor",
-  "cpf": "cpf",
-  "nacionalidade": "nacionalidade",
-  "telefone": "telefone",
+  "órgão expedidor": "orgao_expedidor",
+  cpf: "cpf",
+  nacionalidade: "nacionalidade",
+  telefone: "telefone",
   "e-mail": "email",
-  "email": "email",
-  "naturalidade": "naturalidade",
+  email: "email",
+  naturalidade: "naturalidade",
   "endereço": "endereco",
-  "endereco": "endereco",
-  "bairro": "bairro",
-  "cidade": "cidade",
-  "cep": "cep",
-  "uf": "uf",
-  "complemento": "complemento",
+  endereco: "endereco",
+  bairro: "bairro",
+  cidade: "cidade",
+  cep: "cep",
+  uf: "uf",
+  complemento: "complemento",
+};
+
+type RespostaExtracaoIA = {
+  campos: CamposResidencia;
+  mensagem?: string;
+  detalhe?: string;
 };
 
 export default function AbaDeclaracaoResidencia() {
@@ -90,22 +97,19 @@ export default function AbaDeclaracaoResidencia() {
     "entrada"
   );
   const [gerando_pdf, definir_gerando_pdf] = useState(false);
+  const [processando_mensagem, definir_processando_mensagem] = useState(false);
+  const [motor_ia_ativo, definir_motor_ia_ativo] = useState(true);
+  const [modal_fluxo_aberto, definir_modal_fluxo_aberto] = useState(false);
   const [erro_mensagem, definir_erro_mensagem] = useState<string | null>(null);
   const [erro_pdf, definir_erro_pdf] = useState<string | null>(null);
   const [copiado, definir_copiado] = useState(false);
+
   function normalizar_rotulo(rotulo: string) {
     return rotulo.trim().toLowerCase();
   }
 
-  function processar_mensagem() {
-    if (!mensagem_bruta.trim()) {
-      definir_erro_mensagem(
-        "Informe a mensagem completa da declaração antes de processar os dados."
-      );
-      return;
-    }
-
-    const linhas = mensagem_bruta.split("\n");
+  function extrair_dados_modo_manual(mensagem: string) {
+    const linhas = mensagem.split("\n");
     const novo_estado: CamposResidencia = { ...estado_inicial_campos };
 
     for (const linha of linhas) {
@@ -114,16 +118,63 @@ export default function AbaDeclaracaoResidencia() {
 
       const rotulo = normalizar_rotulo(partes[0]);
       const valor = partes.slice(1).join(":").trim();
-
       const chave = mapa_rotulos_para_campo[rotulo];
+
       if (chave) {
         novo_estado[chave] = valor;
       }
     }
 
-    definir_campos(novo_estado);
-    definir_etapa("dados");
-    definir_erro_mensagem(null);
+    return novo_estado;
+  }
+
+  async function processar_mensagem() {
+    if (!mensagem_bruta.trim()) {
+      definir_erro_mensagem(
+        "Informe a mensagem completa da declaração antes de processar os dados."
+      );
+      return;
+    }
+
+    try {
+      definir_processando_mensagem(true);
+      definir_erro_mensagem(null);
+
+      if (!motor_ia_ativo) {
+        const campos_manuais = extrair_dados_modo_manual(mensagem_bruta);
+        definir_campos(campos_manuais);
+        definir_etapa("dados");
+        return;
+      }
+
+      const resposta = await fetch("/api/extrair-dados-declaracao-residencia", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ mensagem: mensagem_bruta }),
+      });
+
+      const corpo = (await resposta.json()) as RespostaExtracaoIA;
+
+      if (!resposta.ok || !corpo.campos) {
+        definir_erro_mensagem(
+          corpo.mensagem ??
+            "Não foi possível processar a mensagem com IA. Tente novamente."
+        );
+        return;
+      }
+
+      definir_campos(corpo.campos);
+      definir_etapa("dados");
+    } catch (erro) {
+      console.error("Erro ao processar mensagem com IA:", erro);
+      definir_erro_mensagem(
+        "Falha ao processar a mensagem com IA. Tente novamente em instantes."
+      );
+    } finally {
+      definir_processando_mensagem(false);
+    }
   }
 
   function atualizar_campo(campo: keyof CamposResidencia, valor: string) {
@@ -216,6 +267,50 @@ export default function AbaDeclaracaoResidencia() {
 
         <FieldGroup>
           <Field>
+            <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col">
+                <span className="text-sm font-medium">Motor de IA (Gemini)</span>
+                <span className="text-xs text-muted-foreground">
+                  {motor_ia_ativo
+                    ? "Ativo: leitura e formatação automática inteligente."
+                    : "Desativado: leitura pelo parser local com base em rótulos."}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={motor_ia_ativo}
+                  onClick={() => definir_motor_ia_ativo((valor) => !valor)}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 items-center rounded-full border transition-colors",
+                    motor_ia_ativo
+                      ? "border-primary bg-primary"
+                      : "border-border bg-muted"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-block size-4 rounded-full bg-background transition-transform",
+                      motor_ia_ativo ? "translate-x-6" : "translate-x-1"
+                    )}
+                  />
+                </button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => definir_modal_fluxo_aberto(true)}
+                >
+                  Ver fluxo da IA
+                </Button>
+              </div>
+            </div>
+          </Field>
+
+          <Field>
             <FieldLabel htmlFor="mensagem-residencia">
               Mensagem da declaração
             </FieldLabel>
@@ -256,8 +351,19 @@ export default function AbaDeclaracaoResidencia() {
                 {copiado ? <span className="text-green-500">Estrutura copiada</span> : "Copiar estrutura esperada"}
               </Button>
 
-              <Button size="lg" type="button" onClick={processar_mensagem}>
-                Processar dados
+              <Button
+                size="lg"
+                type="button"
+                onClick={processar_mensagem}
+                disabled={processando_mensagem}
+              >
+                {processando_mensagem
+                  ? motor_ia_ativo
+                    ? "Processando com IA..."
+                    : "Processando..."
+                  : motor_ia_ativo
+                    ? "Processar dados com IA"
+                    : "Processar dados sem IA"}
               </Button>
             </div>
 
@@ -488,6 +594,56 @@ export default function AbaDeclaracaoResidencia() {
           descricao="O download da declaração foi iniciado. Você será levado de volta para a etapa 1 automaticamente em alguns segundos."
           rotulo_botao="Concluir"
         />
+      )}
+
+      {modal_fluxo_aberto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-xl rounded-2xl border border-border bg-background p-5 shadow-lg">
+            <div className="mb-3">
+              <h3 className="text-lg font-semibold">Fluxo de trabalho da IA</h3>
+              <p className="text-sm text-muted-foreground">
+                Resumo do que acontece quando o motor Gemini está ativo.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 text-sm">
+              <div className="rounded-xl border border-border bg-card p-3">
+                <span className="font-medium">1. Recebimento da mensagem</span>
+                <p className="text-muted-foreground">
+                  O texto bruto da declaração é enviado para a API de extração.
+                </p>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-3">
+                <span className="font-medium">2. Leitura semântica (Gemini)</span>
+                <p className="text-muted-foreground">
+                  O modelo identifica os campos mesmo com variações de escrita.
+                </p>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-3">
+                <span className="font-medium">3. Normalização automática</span>
+                <p className="text-muted-foreground">
+                  CPF, telefone, CEP e UF são padronizados para facilitar a revisão.
+                </p>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-3">
+                <span className="font-medium">4. Revisão humana</span>
+                <p className="text-muted-foreground">
+                  Os dados são exibidos na etapa seguinte para validação antes do PDF.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => definir_modal_fluxo_aberto(false)}
+              >
+                Fechar
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );
