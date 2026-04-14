@@ -86,7 +86,7 @@ export function ModalProcessamentoIA({
   return (
     <Dialog
       open={aberto}
-      onOpenChange={(aberto) => !aberto && pode_fechar && onFechar()}
+      onOpenChange={(aberto: boolean) => !aberto && pode_fechar && onFechar()}
     >
       <DialogContent
         mostrar_botao_fechar={pode_fechar}
