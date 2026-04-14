@@ -81,12 +81,40 @@ function normalizar_rotulo(rotulo: string): string {
     .replace(/\p{Diacritic}/gu, "");
 }
 
+function normalizar_rotulo_para_busca(rotulo: string): string {
+  return normalizar_rotulo(rotulo)
+    .replace(/[*_`]/g, "")
+    .replace(/\s*\([^)]*\)\s*$/g, "")
+    .replace(/\s+\d+\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function limpar_valor(valor: string): string {
   return valor
+    .replace(/\[([^\]]+)\]\((?:mailto:)?[^)]+\)/gi, "$1")
+    .replace(/[ *_`]+/g, " ")
     .replace(/[\u{1F300}-\u{1F9FF}]/gu, "")
     .replace(/[\u{2600}-\u{26FF}]/gu, "")
     .replace(/[\u{2700}-\u{27BF}]/gu, "")
     .trim();
+}
+
+function extrair_localidade_uf(
+  valor: string
+): { localidade: string; uf: string | null } {
+  const texto = valor.trim();
+  const match = texto.match(/^(.*?)(?:\s*[-/]\s*|,\s*)([A-Za-z]{2})$/);
+  if (!match) {
+    return { localidade: texto, uf: null };
+  }
+
+  const localidade = match[1].trim();
+  const uf = match[2].toUpperCase();
+  return {
+    localidade: localidade || texto,
+    uf,
+  };
 }
 
 /**
@@ -116,11 +144,11 @@ function extrair_por_parser(mensagem: string): CamposResidencia {
   let numero = "";
 
   for (let i = 0; i < linhas.length; i++) {
-    const linha = linhas[i];
+    const linha = linhas[i].replace(/^\s*[-•*]+\s*/, "");
     const match = linha.match(/^\s*([^:=\-–—]+?)\s*[:=\-–—]\s*(.*)$/);
     if (!match) continue;
 
-    const rotulo = normalizar_rotulo(match[1]);
+    const rotulo = normalizar_rotulo_para_busca(match[1]);
     let valor = limpar_valor(match[2] ?? "");
 
     if (!valor && i + 1 < linhas.length) {
@@ -143,6 +171,16 @@ function extrair_por_parser(mensagem: string): CamposResidencia {
         } else {
           resultado.endereco = valor;
         }
+      } else if (chave === "telefone") {
+        if (!resultado.telefone && valor) {
+          resultado.telefone = valor;
+        }
+      } else if (chave === "cidade" || chave === "naturalidade") {
+        const { localidade, uf } = extrair_localidade_uf(valor);
+        resultado[chave] = localidade;
+        if (!resultado.uf && uf) {
+          resultado.uf = uf;
+        }
       } else {
         resultado[chave] = valor;
       }
@@ -153,6 +191,15 @@ function extrair_por_parser(mensagem: string): CamposResidencia {
     resultado.endereco = numero ? `${rua}, nº ${numero}` : rua;
   } else if (numero && resultado.endereco && !resultado.endereco.includes(numero)) {
     resultado.endereco = `${resultado.endereco}, nº ${numero}`;
+  }
+
+  if (!resultado.uf) {
+    const origem_uf =
+      resultado.orgao_expedidor || resultado.naturalidade || resultado.cidade;
+    const uf_match = origem_uf.match(/\b([A-Za-z]{2})\b$/);
+    if (uf_match) {
+      resultado.uf = uf_match[1].toUpperCase();
+    }
   }
 
   return resultado;
