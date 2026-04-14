@@ -19,7 +19,7 @@ async function validar_token(token: string) {
   });
 }
 
-export async function middleware(requisicao: NextRequest) {
+export async function proxy(requisicao: NextRequest) {
   const caminho = requisicao.nextUrl.pathname;
 
   if (
