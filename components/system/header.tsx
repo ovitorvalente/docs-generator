@@ -18,8 +18,8 @@ export default function Header() {
   }
 
   return (
-    <header className="flex w-full items-center justify-between border-b border-dashed bg-background/50 p-2 backdrop-blur-sm">
-      <span className="text-xl font-medium text-muted-foreground">QUICK - Gerador de Documentos</span>
+    <header className="flex w-full items-center justify-between border-b border-dashed bg-background/50 px-3 py-2.5 backdrop-blur-sm md:px-6">
+      <span className="text-base font-medium text-muted-foreground md:text-xl">QUICK - Gerador de Documentos</span>
       <div className="flex items-center gap-2">
         <ThemeToggle />
         <Button variant="destructive" size="sm" onClick={ao_clicar_sair}>
