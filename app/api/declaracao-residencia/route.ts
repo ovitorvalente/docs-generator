@@ -185,29 +185,6 @@ async function gerar_pdf(campos: CamposResidencia): Promise<Uint8Array> {
   const fonte_regular = await pdf.embedFont(StandardFonts.Helvetica);
   const fonte_bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-  const caminho_logo_jpg = path.join(cwd(), "public", "logo.jpg");
-  const caminho_logo_png = path.join(cwd(), "public", "logo.png");
-  try {
-    let logo;
-    try {
-      const logo_bytes_jpg = await readFile(caminho_logo_jpg);
-      logo = await pdf.embedJpg(logo_bytes_jpg);
-    } catch {
-      const logo_bytes_png = await readFile(caminho_logo_png);
-      logo = await pdf.embedPng(logo_bytes_png);
-    }
-
-    const escala = 60 / logo.width;
-    pagina.drawImage(logo, {
-      x: 60,
-      y: A4_HEIGHT - 145,
-      width: 60,
-      height: logo.height * escala,
-    });
-  } catch {
-    // Se a logo não existir, segue sem ela.
-  }
-
   const titulo = "DECLARAÇÃO DE RESIDÊNCIA";
   const tamanho_titulo = 18;
   const largura_titulo = fonte_bold.widthOfTextAtSize(titulo, tamanho_titulo);
@@ -226,6 +203,33 @@ async function gerar_pdf(campos: CamposResidencia): Promise<Uint8Array> {
     end: { x: x_titulo + largura_titulo, y: y_titulo - 4 },
     thickness: 1,
   });
+
+  const caminho_logo_jpg = path.join(cwd(), "public", "logo.jpg");
+  const caminho_logo_png = path.join(cwd(), "public", "logo.png");
+  try {
+    let logo;
+    try {
+      const logo_bytes_jpg = await readFile(caminho_logo_jpg);
+      logo = await pdf.embedJpg(logo_bytes_jpg);
+    } catch {
+      const logo_bytes_png = await readFile(caminho_logo_png);
+      logo = await pdf.embedPng(logo_bytes_png);
+    }
+
+    const escala = 42 / logo.width;
+    const largura_logo = 42;
+    const altura_logo = logo.height * escala;
+    const y_logo = y_titulo + (tamanho_titulo - altura_logo) / 2;
+
+    pagina.drawImage(logo, {
+      x: MARGIN_X,
+      y: y_logo,
+      width: largura_logo,
+      height: altura_logo,
+    });
+  } catch {
+    // Se a logo não existir, segue sem ela.
+  }
 
   const documento_identidade_formatado = formatar_documento_identidade(
     campos.documento_identidade,
