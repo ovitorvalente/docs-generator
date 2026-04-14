@@ -90,8 +90,8 @@ export function ModalProcessamentoIA({
     >
       <DialogContent
         mostrar_botao_fechar={pode_fechar}
-        onInteractOutside={(e) => !pode_fechar && e.preventDefault()}
-        onEscapeKeyDown={(e) => !pode_fechar && e.preventDefault()}
+        onInteractOutside={(e: Event) => !pode_fechar && e.preventDefault()}
+        onEscapeKeyDown={(e: Event) => !pode_fechar && e.preventDefault()}
         className="max-h-[90vh] overflow-y-auto"
       >
         <DialogHeader>
