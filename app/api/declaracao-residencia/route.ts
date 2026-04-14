@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { cwd } from "node:process";
 
 type CamposResidencia = {
@@ -22,6 +23,14 @@ type CamposResidencia = {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const require = createRequire(import.meta.url);
+
+function obter_pdfkit() {
+  // Usa a versão CommonJS para evitar incompatibilidade do bundle ESM do pdfkit com Turbopack.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require("pdfkit/js/pdfkit.js");
+}
 
 function gerar_nome_arquivo(campos: CamposResidencia, data: Date) {
   const nome_base = (campos.nome || "declaracao-residencia")
@@ -245,10 +254,7 @@ export async function POST(requisicao: NextRequest) {
   try {
     const corpo = (await requisicao.json()) as CamposResidencia;
 
-    // Usa require dinâmico para evitar que o bundler do Next transforme o módulo
-    // e quebre a dependência interna do fontkit/@swc/helpers.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-explicit-any
-    const PDFKit = (eval("require") as any)("pdfkit");
+    const PDFKit = obter_pdfkit();
 
     const documento = new PDFKit({
       size: "A4",
@@ -294,4 +300,3 @@ export async function POST(requisicao: NextRequest) {
     );
   }
 }
-
