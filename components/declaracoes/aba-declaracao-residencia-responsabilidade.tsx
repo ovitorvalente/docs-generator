@@ -106,20 +106,20 @@ export default function AbaDeclaracaoResidenciaResponsabilidade() {
   }
 
   return (
-    <section className="mt-4 space-y-4 rounded-4xl border border-dashed border-border bg-background/50 p-4">
+    <section className="mt-2 space-y-6 rounded-4xl border border-dashed border-border bg-background/50 p-4 md:p-6">
       <CabecalhoEtapasDeclaracao
         etapas={["Dados do responsável", "PDF gerado"]}
         etapa_atual={etapa_atual}
       />
 
       {etapa === "dados" && (
-        <FieldSet>
+        <FieldSet className="gap-5">
           <FieldDescription>
             Informe o nome completo do responsável financeiro para gerar a
             declaração de residência e responsabilidade.
           </FieldDescription>
 
-          <FieldGroup className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <FieldGroup className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Field className="sm:col-span-2 lg:col-span-2">
               <FieldLabel htmlFor="campo-nome-responsavel">
                 Nome completo
@@ -140,6 +140,7 @@ export default function AbaDeclaracaoResidenciaResponsabilidade() {
                 size="lg"
                 onClick={gerar_pdf}
                 disabled={gerando_pdf}
+                className="w-full sm:w-auto"
               >
                 {gerando_pdf ? "Gerando PDF..." : "Gerar PDF"}
               </Button>
@@ -170,5 +171,4 @@ export default function AbaDeclaracaoResidenciaResponsabilidade() {
     </section>
   );
 }
-
 
